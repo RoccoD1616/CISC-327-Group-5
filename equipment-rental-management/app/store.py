@@ -6,12 +6,11 @@ the project approachable before students cover databases later in the
 program, while still separating storage from the route/model code.
 """
 
-products = {}
-suppliers = {}
-transactions = {}
-purchase_orders = {}
+equipment = {}
+renters = {}
+rentals = {}
 
-_next_ids = {"product": 1, "supplier": 1, "transaction": 1, "purchase_order": 1}
+_next_ids = {"equipment": 1, "renter": 1, "rental": 1}
 
 
 def next_id(kind):
@@ -22,8 +21,7 @@ def next_id(kind):
 
 def reset():
     """Clear all data. Handy for resetting state between tests."""
-    products.clear()
-    suppliers.clear()
-    transactions.clear()
-    purchase_orders.clear()
-    _next_ids.update(product=1, supplier=1, transaction=1, purchase_order=1)
+    equipment.clear()
+    renters.clear()
+    rentals.clear()
+    _next_ids.update(equipment=1, renter=1, rental=1)
