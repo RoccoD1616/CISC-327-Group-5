@@ -1,3 +1,5 @@
+from datetime import date, timedelta
+
 def test_create_equipment_preserves_details_on_retrieval(client):
     """R1: equipment details remain available through a separate lookup."""
     payload = {
@@ -299,3 +301,148 @@ def test_status_and_availability_for_unknown_equipment_return_errors(client):
     assert availability.get_json() == {"error": "Equipment not found"}
 
     assert client.get("/equipment").get_json() == []
+
+def test_extend_rental_updates_due_date_and_preserves_other_rentals(client):
+    """R25: extending a rental saves its new due date without changing others."""
+    equipment = client.post(
+        "/equipment",
+        json={"name": "Rental Tent", "category": "Camping", "total_units": 2},
+    )
+    renter = client.post(
+        "/renters",
+        json={"name": "Extension Renter", "email": "extension@example.com"},
+    )
+    assert equipment.status_code == 201
+    assert renter.status_code == 201
+
+    equipment_id = equipment.get_json()["id"]
+    payload = {
+        "equipment_id": equipment_id,
+        "renter_id": renter.get_json()["id"],
+    }
+
+    first = client.post("/rentals", json=payload)
+    second = client.post("/rentals", json=payload)
+    assert first.status_code == 201
+    assert second.status_code == 201
+
+    original = first.get_json()
+    other = second.get_json()
+    expected_due_date = (
+        date.fromisoformat(original["due_date"]) + timedelta(days=3)
+    ).isoformat()
+
+    response = client.put(
+        f"/rentals/{original['id']}/extend",
+        json={"days": 3},
+    )
+    assert response.status_code == 200
+
+    expected = {**original, "due_date": expected_due_date}
+    assert response.get_json() == expected
+
+    listing = client.get(f"/rentals?equipment_id={equipment_id}")
+    assert listing.status_code == 200
+    records = listing.get_json()
+    assert len(records) == 2
+    by_id = {record["id"]: record for record in records}
+    assert by_id[original["id"]] == expected
+    assert by_id[other["id"]] == other
+
+    availability = client.get(f"/equipment/{equipment_id}/availability")
+    assert availability.status_code == 200
+    assert availability.get_json()["available_units"] == 0
+
+def test_extend_nonexistent_rental_returns_error(client):
+    """An unknown rental cannot be extended or accidentally created."""
+    response = client.put("/rentals/999/extend", json={"days": 2})
+
+    assert response.status_code == 404
+    assert response.get_json() == {"error": "Rental not found"}
+    assert client.get("/rentals").get_json() == []
+
+
+def test_extend_returned_rental_preserves_record_and_availability(client):
+    """A completed rental cannot be extended or change equipment stock."""
+    equipment = client.post(
+        "/equipment",
+        json={"name": "Return Test Tent", "category": "Camping", "total_units": 1},
+    )
+    renter = client.post(
+        "/renters",
+        json={"name": "Test Renter", "email": "returned@example.com"},
+    )
+    assert equipment.status_code == 201
+    assert renter.status_code == 201
+    equipment_id = equipment.get_json()["id"]
+
+    checkout = client.post(
+        "/rentals",
+        json={
+            "equipment_id": equipment_id,
+            "renter_id": renter.get_json()["id"],
+        },
+    )
+    assert checkout.status_code == 201
+    rental_id = checkout.get_json()["id"]
+
+    returned = client.put(f"/rentals/{rental_id}/return")
+    assert returned.status_code == 200
+    original = returned.get_json()
+    assert original["return_date"] is not None
+
+    response = client.put(
+        f"/rentals/{rental_id}/extend",
+        json={"days": 2},
+    )
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "Rental already returned"}
+
+    listing = client.get(f"/rentals?equipment_id={equipment_id}")
+    assert listing.status_code == 200
+    assert listing.get_json() == [original]
+
+    availability = client.get(f"/equipment/{equipment_id}/availability")
+    assert availability.status_code == 200
+    assert availability.get_json()["available_units"] == 1
+
+def test_negative_extension_is_rejected_without_changing_rental(client):
+    """R24: an extension must not shorten a rental using negative days."""
+    equipment = client.post(
+        "/equipment",
+        json={"name": "Extension Test Kayak", "category": "Water Sports"},
+    )
+    renter = client.post(
+        "/renters",
+        json={"name": "Test Renter", "email": "negative@example.com"},
+    )
+    assert equipment.status_code == 201
+    assert renter.status_code == 201
+    equipment_id = equipment.get_json()["id"]
+
+    checkout = client.post(
+        "/rentals",
+        json={
+            "equipment_id": equipment_id,
+            "renter_id": renter.get_json()["id"],
+        },
+    )
+    assert checkout.status_code == 201
+    original = checkout.get_json()
+
+    response = client.put(
+        f"/rentals/{original['id']}/extend",
+        json={"days": -8},
+    )
+
+    listing = client.get(f"/rentals?equipment_id={equipment_id}")
+    assert listing.status_code == 200
+
+    # Check both rejection and unchanged state in the same assertion.
+    assert (response.status_code, listing.get_json()) == (
+        400,
+        [original],
+    ), (
+        "Expected HTTP 400 and an unchanged rental; "
+        f"got HTTP {response.status_code} and {listing.get_json()}"
+    )
