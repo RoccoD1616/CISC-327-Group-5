@@ -112,3 +112,190 @@ def test_get_nonexistent_equipment_returns_clear_error(client):
     assert response.status_code == 404
     assert response.get_json() == {"error": "Equipment not found"}
     assert client.get("/equipment").get_json() == []
+
+def test_update_equipment_preserves_unspecified_fields(client):
+    """Updating a name retains the equipment's other recorded details."""
+    created = client.post(
+        "/equipment",
+        json={
+            "name": "Original Kayak",
+            "category": "Water Sports",
+            "total_units": 2,
+        },
+    )
+    assert created.status_code == 201
+    original = created.get_json()
+    equipment_id = original["id"]
+
+    updated = client.put(
+        f"/equipment/{equipment_id}",
+        json={"name": "Renamed Kayak"},
+    )
+    assert updated.status_code == 200
+
+    expected = {**original, "name": "Renamed Kayak"}
+    assert updated.get_json() == expected
+
+    retrieved = client.get(f"/equipment/{equipment_id}")
+    assert retrieved.status_code == 200
+    assert retrieved.get_json() == expected
+
+
+def test_update_nonexistent_equipment_does_not_create_record(client):
+    """Updating an unknown ID returns an error without adding equipment."""
+    response = client.put(
+        "/equipment/999",
+        json={"name": "Missing Kayak"},
+    )
+
+    assert response.status_code == 404
+    assert response.get_json() == {"error": "Equipment not found"}
+
+    listing = client.get("/equipment")
+    assert listing.status_code == 200
+    assert listing.get_json() == []
+
+def test_delete_equipment_removes_only_selected_record(client):
+    """Deleting one item preserves another and prevents later retrieval."""
+    first = client.post(
+        "/equipment",
+        json={"name": "Delete Kayak", "category": "Water Sports"},
+    )
+    second = client.post(
+        "/equipment",
+        json={"name": "Keep Tent", "category": "Camping"},
+    )
+    assert first.status_code == 201
+    assert second.status_code == 201
+    deleted_id = first.get_json()["id"]
+    retained = second.get_json()
+
+    response = client.delete(f"/equipment/{deleted_id}")
+    assert response.status_code == 204
+
+    lookup = client.get(f"/equipment/{deleted_id}")
+    assert lookup.status_code == 404
+    assert lookup.get_json() == {"error": "Equipment not found"}
+
+    listing = client.get("/equipment")
+    assert listing.status_code == 200
+    assert listing.get_json() == [retained]
+
+    repeated = client.delete(f"/equipment/{deleted_id}")
+    assert repeated.status_code == 404
+    assert repeated.get_json() == {"error": "Equipment not found"}
+    assert client.get("/equipment").get_json() == [retained]
+
+
+def test_equipment_form_delete_removes_record_from_page_and_store(client):
+    """The UI delete action removes the selected equipment record."""
+    created = client.post(
+        "/equipment",
+        json={"name": "UI Delete Tent", "category": "Camping"},
+    )
+    assert created.status_code == 201
+    equipment_id = created.get_json()["id"]
+
+    before = client.get("/ui/equipment")
+    assert "UI Delete Tent" in before.get_data(as_text=True)
+
+    response = client.post(
+        f"/ui/equipment/{equipment_id}/delete",
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert response.request.path == "/ui/equipment"
+    assert "UI Delete Tent" not in response.get_data(as_text=True)
+
+    assert client.get(f"/equipment/{equipment_id}").status_code == 404
+    assert client.get("/equipment").get_json() == []
+
+def test_service_status_changes_persist_without_changing_unit_counts(client):
+    """R13: equipment can leave and return to service without changing stock."""
+    created = client.post(
+        "/equipment",
+        json={"name": "Repair Bike", "category": "Bikes", "total_units": 2},
+    )
+    assert created.status_code == 201
+    equipment_id = created.get_json()["id"]
+
+    for service_status in (False, True):
+        updated = client.patch(
+            f"/equipment/{equipment_id}/status",
+            json={"is_available": service_status},
+        )
+        assert updated.status_code == 200
+        assert updated.get_json()["is_available"] is service_status
+
+        availability = client.get(f"/equipment/{equipment_id}/availability")
+        assert availability.status_code == 200
+        assert availability.get_json() == {
+            "equipment_id": equipment_id,
+            "is_available": service_status,
+            "available_units": 2,
+            "total_units": 2,
+        }
+
+        record = client.get(f"/equipment/{equipment_id}").get_json()
+        assert record["is_available"] is service_status
+        assert record["available_units"] == 2
+        assert record["total_units"] == 2
+
+
+def test_availability_tracks_checkout_and_return(client):
+    """Availability reflects rental activity while service status stays separate."""
+    equipment = client.post(
+        "/equipment",
+        json={"name": "Single Kayak", "category": "Water Sports", "total_units": 1},
+    )
+    renter = client.post(
+        "/renters",
+        json={"name": "Test Renter", "email": "test@example.com"},
+    )
+    assert equipment.status_code == 201
+    assert renter.status_code == 201
+    equipment_id = equipment.get_json()["id"]
+    renter_id = renter.get_json()["id"]
+
+    initial = client.get(f"/equipment/{equipment_id}/availability")
+    assert initial.status_code == 200
+    assert initial.get_json()["available_units"] == 1
+
+    checkout = client.post(
+        "/rentals",
+        json={"equipment_id": equipment_id, "renter_id": renter_id},
+    )
+    assert checkout.status_code == 201
+    rental_id = checkout.get_json()["id"]
+
+    during = client.get(f"/equipment/{equipment_id}/availability")
+    assert during.status_code == 200
+    assert during.get_json() == {
+        "equipment_id": equipment_id,
+        "is_available": True,
+        "available_units": 0,
+        "total_units": 1,
+    }
+
+    returned = client.put(f"/rentals/{rental_id}/return")
+    assert returned.status_code == 200
+
+    after = client.get(f"/equipment/{equipment_id}/availability")
+    assert after.status_code == 200
+    assert after.get_json() == initial.get_json()
+
+
+def test_status_and_availability_for_unknown_equipment_return_errors(client):
+    """Unknown IDs cannot be updated or produce an availability summary."""
+    updated = client.patch(
+        "/equipment/999/status",
+        json={"is_available": False},
+    )
+    assert updated.status_code == 404
+    assert updated.get_json() == {"error": "Equipment not found"}
+
+    availability = client.get("/equipment/999/availability")
+    assert availability.status_code == 404
+    assert availability.get_json() == {"error": "Equipment not found"}
+
+    assert client.get("/equipment").get_json() == []
