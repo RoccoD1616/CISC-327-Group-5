@@ -189,9 +189,7 @@ def test_checkout_nonexistent_equipment(client):
         "name": "John Smith",
         "email": "john@example.com"
     })
-
     renter_id = renter_response.get_json()["id"]
-
     # Attempt to check out nonexistent equipment
     response = client.post("/rentals", json={
         "equipment_id": 99999,
@@ -210,14 +208,12 @@ def test_checkout_out_of_service_equipment(client):
     })
     assert equipment_response.status_code == 201
     equipment_id = equipment_response.get_json()["id"]
-
     renter_response = client.post("/renters", json={
         "name": "John Smith",
         "email": "john@example.com"
     })
     assert renter_response.status_code == 201
     renter_id = renter_response.get_json()["id"]
-
     response = client.post("/rentals", json={
         "equipment_id": equipment_id,
         "renter_id": renter_id,
