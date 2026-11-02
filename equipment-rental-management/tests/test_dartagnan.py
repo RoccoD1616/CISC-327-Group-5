@@ -8,7 +8,6 @@ def test_create_renter(client):
     })
 
     assert response.status_code == 201
-
     renter = response.get_json()
     assert renter["name"] == "John Smith"
     assert renter["email"] == "john@example.com"
