@@ -116,20 +116,14 @@ def test_delete_renter(client):
         "name": "John Smith",
         "email": "john@example.com"
     })
-
     assert create_response.status_code == 201
-
     renter = create_response.get_json()
     renter_id = renter["id"]
-
     # Delete the renter
     response = client.delete(f"/renters/{renter_id}")
-
     assert response.status_code == 204
-
     # Verify that the renter no longer exists
     get_response = client.get(f"/renters/{renter_id}")
-
     assert get_response.status_code == 404
 
 
