@@ -20,7 +20,6 @@ def list_rentals():
     return jsonify([r.to_dict() for r in results])
 
 
-
 @rentals_bp.route("", methods=["POST"])
 def checkout_equipment():
     data = request.get_json()
