@@ -24,14 +24,13 @@ def list_rentals():
 def checkout_equipment():
     data = request.get_json()
     item = store.equipment.get(data["equipment_id"])
-
     if item is None:
         return jsonify({"error": "Equipment not found"}), 404
 
-    # Prevent checkout of equipment marked out of service.
-    if not item.is_available:
-        return jsonify({"error": "Equipment is out of service"}), 400
-
+    # BUG: does not check item.is_available — out-of-service equipment can
+    # still be checked out. The check below is intentionally absent:
+    #   if not item.is_available:
+    #       return jsonify({"error": "Equipment is out of service"}), 400
     item.available_units -= 1
 
     rental_id = store.next_id("rental")
@@ -42,7 +41,6 @@ def checkout_equipment():
         due_date=Rental.default_due_date(),
         deposit_amount=data.get("deposit_amount", 0.0),
     )
-
     store.rentals[rental_id] = rental
     return jsonify(rental.to_dict()), 201
 
