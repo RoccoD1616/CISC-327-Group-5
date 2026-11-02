@@ -42,7 +42,7 @@ app working without a REST client, and calls the same in-memory store.
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/equipment` | List all equipment |
+| GET | `/equipment` or `/equipment?name=<search>` | List all equipment or search by case-insensitive partial name |
 | POST | `/equipment` | Add an equipment item |
 | GET | `/equipment/<id>` | Get one equipment item |
 | PUT | `/equipment/<id>` | Update an equipment item |
@@ -56,9 +56,23 @@ app working without a REST client, and calls the same in-memory store.
 | PUT | `/rentals/<id>/return` | Return rented equipment |
 | GET | `/rentals?renter_id=&equipment_id=` | Look up rentals |
 
+## Equipment Name Search
+
+GET /equipment?name=kay searches equipment names using case-insensitive
+partial matching. For example, it matches both "Touring Kayak" and
+"KAYAK Double". Surrounding whitespace in the search is ignored.
+
+The endpoint returns HTTP 200 with matching equipment records.
+If nothing matches, it returns an empty list. An omitted, empty, or
+whitespace-only name parameter returns all equipment.
+
+Searching does not modify stored records. This enhancement supports R5.
+Tests in tests/test_rocco.py verify matching, exclusion of unrelated
+equipment, no matches, blank or omitted searches, and record preservation.
+
 ## Tests
 
 ```bash
-pytest
+python -m pytest -v
 ```
 

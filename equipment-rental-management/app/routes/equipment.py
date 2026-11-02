@@ -8,7 +8,18 @@ equipment_bp = Blueprint("equipment", __name__, url_prefix="/equipment")
 
 @equipment_bp.route("", methods=["GET"])
 def list_equipment():
-    return jsonify([e.to_dict() for e in store.equipment.values()])
+    """List equipment, optionally filtering by a partial equipment name."""
+    name_query = request.args.get("name", "").strip().casefold()
+    equipment = store.equipment.values()
+
+    if name_query:
+        equipment = [
+            item
+            for item in equipment
+            if name_query in item.name.casefold()
+        ]
+
+    return jsonify([item.to_dict() for item in equipment])
 
 
 @equipment_bp.route("", methods=["POST"])
