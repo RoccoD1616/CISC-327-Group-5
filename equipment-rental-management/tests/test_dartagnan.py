@@ -130,7 +130,6 @@ def test_delete_renter(client):
 def test_delete_nonexistent_renter(client):
     # Attempt to delete a renter that does not exist
     response = client.delete("/renters/99999")
-
     assert response.status_code == 404
     
 def test_checkout_equipment(client):
@@ -141,60 +140,43 @@ def test_checkout_equipment(client):
         "total_units": 2,
         "is_available": True
     })
-
     assert equipment_response.status_code == 201
-
     equipment = equipment_response.get_json()
     equipment_id = equipment["id"]
-
     # Create renter
     renter_response = client.post("/renters", json={
         "name": "John Smith",
         "email": "john@example.com"
     })
-
     assert renter_response.status_code == 201
-
     renter = renter_response.get_json()
     renter_id = renter["id"]
-
     # Check out the equipment
     checkout_response = client.post("/rentals", json={
         "equipment_id": equipment_id,
         "renter_id": renter_id,
         "deposit_amount": 50
     })
-
     assert checkout_response.status_code == 201
-
     rental = checkout_response.get_json()
-
     # Verify rental details
     assert rental["equipment_id"] == equipment_id
     assert rental["renter_id"] == renter_id
     assert rental["deposit_amount"] == 50
     assert rental["return_date"] is None
     assert rental["due_date"] is not None
-
     # Verify that equipment availability decreased
     availability_response = client.get(
         f"/equipment/{equipment_id}/availability"
     )
-
     assert availability_response.status_code == 200
-
     availability = availability_response.get_json()
-
     assert availability["available_units"] == 1
     assert availability["total_units"] == 2
-
     # Verify that the rental was recorded
     rentals_response = client.get("/rentals")
-
     assert rentals_response.status_code == 200
-
     rentals = rentals_response.get_json()
-
     assert any(
         r["equipment_id"] == equipment_id
         and r["renter_id"] == renter_id
