@@ -446,3 +446,67 @@ def test_negative_extension_is_rejected_without_changing_rental(client):
         "Expected HTTP 400 and an unchanged rental; "
         f"got HTTP {response.status_code} and {listing.get_json()}"
     )
+
+def test_equipment_name_search_matches_partial_names_without_changing_records(client):
+    """R5: search ignores case and surrounding spaces and preserves records."""
+    created = []
+    for name in ("Touring Kayak", "KAYAK Double", "Camping Tent"):
+        response = client.post(
+            "/equipment",
+            json={"name": name, "category": "Outdoor", "total_units": 2},
+        )
+        assert response.status_code == 201
+        created.append(response.get_json())
+
+    response = client.get("/equipment", query_string={"name": "  kAy  "})
+
+    assert response.status_code == 200
+    results = {item["id"]: item for item in response.get_json()}
+    expected = {item["id"]: item for item in created[:2]}
+    assert results == expected
+
+    # Searching must not remove or alter any equipment.
+    listing = client.get("/equipment")
+    assert listing.status_code == 200
+    assert {item["id"]: item for item in listing.get_json()} == {
+        item["id"]: item for item in created
+    }
+    for item in created:
+        retrieved = client.get(f"/equipment/{item['id']}")
+        assert retrieved.status_code == 200
+        assert retrieved.get_json() == item
+
+
+def test_equipment_name_search_returns_empty_list_when_nothing_matches(client):
+    """R5: an unmatched name returns no equipment, even with existing stock."""
+    response = client.post(
+        "/equipment",
+        json={"name": "Camping Tent", "category": "Camping", "total_units": 1},
+    )
+    assert response.status_code == 201
+    original = response.get_json()
+
+    response = client.get("/equipment", query_string={"name": "kayak"})
+
+    assert response.status_code == 200
+    assert response.get_json() == []
+    assert client.get(f"/equipment/{original['id']}").get_json() == original
+
+
+def test_equipment_name_search_blank_or_omitted_returns_all_equipment(client):
+    """Omitted, empty, and whitespace-only searches preserve normal listing."""
+    created = []
+    for name in ("Kayak", "Tent"):
+        response = client.post(
+            "/equipment",
+            json={"name": name, "category": "Outdoor", "total_units": 1},
+        )
+        assert response.status_code == 201
+        created.append(response.get_json())
+
+    expected = {item["id"]: item for item in created}
+
+    for query in ({}, {"name": ""}, {"name": "   "}):
+        response = client.get("/equipment", query_string=query)
+        assert response.status_code == 200
+        assert {item["id"]: item for item in response.get_json()} == expected
