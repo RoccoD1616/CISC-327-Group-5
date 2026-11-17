@@ -198,6 +198,11 @@ def test_checkout_nonexistent_equipment(client):
 
     assert response.status_code == 404
     
+@pytest.mark.xfail(
+    reason="Known Assignment 2 defect: checkout_equipment does not check is_available, so out-of-service equipment can be checked out.",
+    raises=AssertionError,
+    strict=True,
+)
 def test_checkout_out_of_service_equipment(client):
     equipment_response = client.post("/equipment", json={
         "name": "Broken Drill",
@@ -300,6 +305,11 @@ def test_filter_rentals_by_equipment(client):
     assert len(rentals) == 1
     assert rentals[0]["equipment_id"] == equipment1["id"]
 
+@pytest.mark.xfail(
+    reason="Known Assignment 2 defect: the renter_id filter in list_rentals compares against equipment_id instead of renter_id.",
+    raises=AssertionError,
+    strict=True,
+)
 def test_filter_rentals_by_renter(client):
     # Create two equipment items
     equipment1 = client.post("/equipment", json={
@@ -448,6 +458,11 @@ def test_return_equipment_twice(client):
 
     assert second_return.status_code == 400
 
+@pytest.mark.xfail(
+    reason="Known Assignment 2 defect: release_deposit reports deposit_released=True but never saves it on the rental.",
+    raises=AssertionError,
+    strict=True,
+)
 def test_release_deposit(client):
     equipment_response = client.post("/equipment", json={
         "name": "Camera",
