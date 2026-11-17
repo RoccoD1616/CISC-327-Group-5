@@ -2,8 +2,14 @@ from datetime import date, timedelta
 
 from flask import Blueprint, jsonify, request
 
+from notification_service import build_return_reminder, send_notification
+
 from app import store
 from app.models.rental import Rental
+
+# A return reminder is sent only when the rental is due within this many days
+# (or is already overdue).
+REMINDER_WINDOW_DAYS = 2
 
 rentals_bp = Blueprint("rentals", __name__, url_prefix="/rentals")
 
@@ -94,3 +100,60 @@ def release_deposit(rental_id):
 
     # BUG: rental.deposit_released is never set to True here — state is not persisted.
     return jsonify({"rental_id": rental_id, "deposit_released": True})
+
+
+@rentals_bp.route("/<int:rental_id>/remind", methods=["POST"])
+def send_return_reminder(rental_id):
+    """Email the renter a return reminder for an active rental.
+
+    A reminder is sent only when the rental has not been returned, has not
+    already been reminded, and is due within REMINDER_WINDOW_DAYS days or is
+    overdue. On success the rental is marked reminder_sent. If the
+    notification service fails, the endpoint returns 503, the rental is left
+    unchanged, and the reminder can be retried.
+    """
+    rental = store.rentals.get(rental_id)
+    if rental is None:
+        return jsonify({"error": "Rental not found"}), 404
+    if rental.return_date is not None:
+        return jsonify({"error": "Rental already returned"}), 400
+
+    renter = store.renters.get(rental.renter_id)
+    if renter is None:
+        return jsonify({"error": "Renter not found"}), 404
+
+    if rental.reminder_sent:
+        return jsonify({
+            "rental_id": rental_id,
+            "reminder_sent": False,
+            "reason": "Reminder already sent",
+        })
+
+    days_until_due = (rental.due_date - date.today()).days
+    if days_until_due > REMINDER_WINDOW_DAYS:
+        return jsonify({
+            "rental_id": rental_id,
+            "reminder_sent": False,
+            "reason": f"Rental is not due within {REMINDER_WINDOW_DAYS} days",
+        })
+
+    item = store.equipment.get(rental.equipment_id)
+    equipment_name = item.name if item is not None else f"equipment #{rental.equipment_id}"
+    subject, message = build_return_reminder(
+        renter.name, equipment_name, rental.due_date.isoformat(), days_until_due
+    )
+
+    if not send_notification(renter.email, subject, message):
+        return jsonify({
+            "rental_id": rental_id,
+            "reminder_sent": False,
+            "error": "Notification service failed; reminder not sent",
+        }), 503
+
+    rental.reminder_sent = True
+    return jsonify({
+        "rental_id": rental_id,
+        "reminder_sent": True,
+        "recipient": renter.email,
+        "overdue": days_until_due < 0,
+    })

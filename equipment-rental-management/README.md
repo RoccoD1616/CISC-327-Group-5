@@ -36,7 +36,7 @@ app working without a REST client, and calls the same in-memory store.
 
 - **Equipment**: `id, name, category, total_units, available_units`
 - **Renter**: `id, name, email, membership_date`
-- **Rental**: `id, equipment_id, renter_id, rental_date, due_date, return_date`
+- **Rental**: `id, equipment_id, renter_id, rental_date, due_date, return_date, reminder_sent`
 
 ## JSON API Endpoints
 
@@ -55,6 +55,24 @@ app working without a REST client, and calls the same in-memory store.
 | POST | `/rentals` | Check out equipment (`equipment_id`, `renter_id`) |
 | PUT | `/rentals/<id>/return` | Return rented equipment |
 | GET | `/rentals?renter_id=&equipment_id=` | Look up rentals |
+| POST | `/rentals/<id>/remind` | Send the renter a return reminder (only if the rental is active, due within 2 days or overdue, and not already reminded) |
+
+## Notifications
+
+`notification_service.py` (beside `run.py`, outside `app/`) is a local
+simulator: it makes no network calls and keeps sent notifications in memory.
+`POST /rentals/<id>/remind` calls `send_notification(renter.email, subject,
+message)`:
+
+- **Sent:** HTTP 200, `{"reminder_sent": true, ...}`; the rental's
+  `reminder_sent` becomes `true`.
+- **Conditions not met** (not due within 2 days, or already reminded): HTTP
+  200, `{"reminder_sent": false, "reason": ...}`; no notification is sent.
+- **Service failed** (`send_notification` returned `False`): HTTP 503,
+  `{"reminder_sent": false, "error": ...}`; the rental is unchanged so the
+  reminder can be retried.
+- Unknown rental or renter: 404. Already returned: 400. No notification is
+  sent in either case.
 
 ## Equipment Name Search
 
